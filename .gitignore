@@ -1,4 +1,4 @@
-__pycache__/ 
+__pycache__/
 *.pyc
 .env
 node_modules/
@@ -7,3 +7,6 @@ dist/
 data/
 *.pt
 *.pth
+
+# codex
+**/*.codex
