@@ -1,27 +1,60 @@
 version: "3.9"
 
 services:
+  frontend:
+    build:
+      context: ../..
+      dockerfile: frontend/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    environment:
+      API_UPSTREAM: http://api:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
   api:
-    build: ../../services/api-gateway
+    build:
+      context: ../..
+      dockerfile: services/Dockerfile.api
+    environment:
+      DATA_DIR: /app/services/data
+      FRONTEND_ORIGIN: http://localhost:5173
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: rag_db
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
     ports:
       - "8000:8000"
+    volumes:
+      - services_data:/app/services/data
+    depends_on:
+      - postgres
+      - rabbitmq
 
-  postgres:
-    image: postgres:15
+  worker:
+    build:
+      context: ../..
+      dockerfile: services/Dockerfile.worker
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: app
+      DATA_DIR: /app/services/data
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: rag_db
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    volumes:
+      - services_data:/app/services/data
+    depends_on:
+      - postgres
+      - rabbitmq
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "15672:15672"
-      - "5672:5672"
   postgres:
     image: postgres:16
-    container_name: rag_postgres
-    restart: unless-stopped
     environment:
       POSTGRES_DB: rag_db
       POSTGRES_USER: rag_user
@@ -31,5 +64,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+
 volumes:
   postgres_data:
+  services_data:

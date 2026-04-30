@@ -1,89 +1,89 @@
-import faiss
+import json
+import logging
+from typing import Any
+
 import numpy as np
-import ollama
-import psycopg2
 
-from environment import (
-    DB_PATH,
-    POSTGRES_DB,
-    POSTGRES_HOST,
-    POSTGRES_PASSWORD,
-    POSTGRES_PORT,
-    POSTGRES_USER,
-)
+try:
+    import faiss
+except ImportError:  # pragma: no cover - fallback covers local environments.
+    faiss = None
 
+from services.environment import JOBS_DIR, RETRIEVAL_TOP_K
+from services.vectorize import embed_text, embed_texts
 
-def get_pg_connection():
-    return psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
-        database=POSTGRES_DB,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-    )
+LOGGER = logging.getLogger(__name__)
 
 
-def embed_query(query, model="nomic-embed-text"):
-    response = ollama.embeddings(model=model, prompt=query)
-    return np.array([response["embedding"]], dtype="float32")
-
-
-def perform_similarity_search(query, faiss_index, top_k=5):
-    query_embedding = embed_query(query)
-
-    distances, ids = faiss_index.search(query_embedding, top_k)
-
-    return ids[0], distances[0]
-
-
-def retrieve_documents_by_ids(document_ids):
-    valid_ids = [int(doc_id) for doc_id in document_ids if doc_id != -1]
-
-    if not valid_ids:
+def retrieve_for_job(
+    job_id: str,
+    query: str,
+    store,
+    top_k: int = RETRIEVAL_TOP_K,
+) -> list[dict[str, Any]]:
+    pages = store.list_pages(job_id)
+    if not pages:
         return []
 
-    conn = get_pg_connection()
-    cur = conn.cursor()
+    results = retrieve_with_faiss(job_id, query, pages, top_k)
+    if results is None:
+        results = retrieve_with_numpy(query, pages, top_k)
 
-    cur.execute(
-        """
-        SELECT id, file_path, file_name, page_number
-        FROM documents
-        WHERE id = ANY(%s);
-    """,
-        (valid_ids,),
+    LOGGER.info(
+        "Retrieved pages for job",
+        extra={"job_id": job_id, "result_count": len(results)},
     )
-
-    rows = cur.fetchall()
-
-    cur.close()
-    conn.close()
-
-    row_map = {row[0]: row for row in rows}
-
-    results = []
-    for doc_id in valid_ids:
-        row = row_map.get(doc_id)
-        if row:
-            results.append(
-                {
-                    "id": row[0],
-                    "file_path": row[1],
-                    "file_name": row[2],
-                    "page_number": row[3],
-                }
-            )
-
     return results
 
 
-def retrieve(query, top_k=5):
-    index_path = DB_PATH / "faiss_index"
-    faiss_index = faiss.read_index(str(index_path))
-    document_ids, distances = perform_similarity_search(
-        query=query, faiss_index=faiss_index, top_k=top_k
+def retrieve_with_faiss(
+    job_id: str,
+    query: str,
+    pages: list[dict[str, Any]],
+    top_k: int,
+) -> list[dict[str, Any]] | None:
+    artifact_dir = JOBS_DIR / job_id / "faiss"
+    index_path = artifact_dir / "index.faiss"
+    metadata_path = artifact_dir / "metadata.json"
+
+    if faiss is None or not index_path.exists() or not metadata_path.exists():
+        return None
+
+    try:
+        index = faiss.read_index(str(index_path))
+        metadata = json.loads(metadata_path.read_text())
+        query_vector = embed_text(query).reshape(1, -1).astype("float32")
+        scores, indexes = index.search(query_vector, min(top_k, len(pages)))
+    except Exception:
+        LOGGER.exception("FAISS retrieval failed; falling back to numpy")
+        return None
+
+    page_lookup = {(page["document_id"], page["page_number"]): page for page in pages}
+    results: list[dict[str, Any]] = []
+    for score, index_value in zip(scores[0], indexes[0]):
+        if index_value < 0 or index_value >= len(metadata):
+            continue
+        match = metadata[index_value]
+        page = page_lookup.get((match["document_id"], match["page_number"]))
+        if page:
+            results.append({**page, "score": float(score)})
+    return results
+
+
+def retrieve_with_numpy(
+    query: str,
+    pages: list[dict[str, Any]],
+    top_k: int,
+) -> list[dict[str, Any]]:
+    query_vector = embed_text(query)
+    page_vectors = embed_texts([page["text"] for page in pages])
+    scores = page_vectors @ query_vector
+    ranked_indexes = np.argsort(scores)[::-1][:top_k]
+
+    return [{**pages[index], "score": float(scores[index])} for index in ranked_indexes]
+
+
+def retrieve(query: str, top_k: int = RETRIEVAL_TOP_K):
+    raise RuntimeError(
+        "retrieve(query) has been replaced by retrieve_for_job(job_id, query, store)."
     )
-    documents = retrieve_documents_by_ids(document_ids)
-    # for doc, distance in zip(documents, distances):
-    #     doc["distance"] = float(distance)
-    return documents

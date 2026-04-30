@@ -1,0 +1,17 @@
+images:
+  frontend:
+    repository: ghcr.io/owner/rrr/frontend
+    tag: latest
+  api:
+    repository: ghcr.io/owner/rrr/api
+    tag: latest
+  worker:
+    repository: ghcr.io/owner/rrr/worker
+    tag: latest
+
+api:
+  corsOrigin: http://rrr.local
+
+ingress:
+  enabled: true
+  host: rrr.local

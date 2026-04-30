@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    faiss-cpu \
+    numpy \
+    pika \
+    psycopg2-binary \
+    pydantic \
+    pypdf
+
+COPY services /app/services
+COPY shared /app/shared
+
+CMD ["python", "-m", "services.worker.main"]

@@ -1,0 +1,47 @@
+imagePullSecrets: []
+
+images:
+  frontend:
+    repository: ghcr.io/owner/rrr/frontend
+    tag: latest
+  api:
+    repository: ghcr.io/owner/rrr/api
+    tag: latest
+  worker:
+    repository: ghcr.io/owner/rrr/worker
+    tag: latest
+
+frontend:
+  replicas: 1
+  service:
+    port: 80
+
+api:
+  replicas: 1
+  service:
+    port: 8000
+  corsOrigin: http://localhost:5173
+  maxUploadBytes: "26214400"
+
+worker:
+  replicas: 1
+
+postgres:
+  image: postgres:16
+  database: rag_db
+  user: rag_user
+  password: rag_password
+  storage: 2Gi
+
+rabbitmq:
+  image: rabbitmq:3-management
+  queue: chat_jobs
+
+storage:
+  size: 5Gi
+  mountPath: /app/services/data
+
+ingress:
+  enabled: false
+  className: nginx
+  host: rrr.local
