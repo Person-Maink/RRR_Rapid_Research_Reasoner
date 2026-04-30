@@ -18,3 +18,18 @@ services:
     ports:
       - "15672:15672"
       - "5672:5672"
+  postgres:
+    image: postgres:16
+    container_name: rag_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rag_db
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
